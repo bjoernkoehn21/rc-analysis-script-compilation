@@ -254,3 +254,4 @@ function hcp_compute_correct_rc_dti(iSubj, subjID, nRandomNetworks, edge, files,
     save(savefile,'rc')
     toc
 end
+

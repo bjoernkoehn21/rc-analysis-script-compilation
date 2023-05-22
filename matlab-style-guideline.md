@@ -7,8 +7,11 @@ Separation of words by underscores is not recommended. For explanation, see [Mat
 *  variables should be named in `camelCase`,
 *  functions should be named in `camelCase`,
 *  structures should be named in `camelCase`.
+*  use the prefix n for variables indicating the number of objects, i.e. `nFiles`
+*  use the prefix i,j,k etc. for iterator variables depending on nesting level, i.e. `iFolder`, `jFile`, `kLine`
+*  minimize the use of abbreviations in names - except for those that are naturally known in the field
 
-Constants should be declaired first in a function, separated by an empty line from the help or following code.
+Constants should be declared first in a function, separated by an empty line from the help or following code.
 
 Here is a code example demonstrating the application of the naming conventions:
 ```matlab
