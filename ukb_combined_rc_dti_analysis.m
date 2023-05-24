@@ -1,4 +1,5 @@
 %% Last step Changes
+% remove "TEST" from names of result matrices
 % change to real ID-file: subjectIDs.txt
 % change number of random networks and parallel workers 2 blocks below to higher number
 
@@ -34,7 +35,7 @@ subjIDs = textscan(fid, '%s');
 subjIDs = subjIDs{1};
 fclose(fid);
 
-% preallocate space for assembled-rc-results matrics
+% preallocate space for assembled-rc-results matrics before loop for time reasons
 rcResults = cell(length(subjIDs), 1);
 rcResults(:) = {struct( ...
     'id', zeros(1, 1), ...
@@ -48,13 +49,15 @@ rcResults(:) = {struct( ...
         'above', zeros(length(FILES), length(EDGE_WEIGHTS))), ...
     'odd', zeros(4, length(FILES), length(EDGE_WEIGHTS)))};
 
-% preallocate space for density-of-empirical-networks matrix
+% preallocate space for density-of-empirical-networks matrix before loop for time reasons
 rcDensity = cell(length(subjIDs), 1);
 rcDensity(:) = {struct( ...
     'fa', zeros(length(FILES), 1), ...
     'svd', zeros(length(FILES), 1))};
 
-%% Start parallel pool
+%% Main process 
+
+% Start parallel pool
 UKB_Cluster = parcluster('local');
 UKB_Cluster.NumWorkers = N_PARALLEL_WORKERS;
 saveProfile(UKB_Cluster);
@@ -62,18 +65,18 @@ parpool('local', N_PARALLEL_WORKERS);
 
 % loop over subject IDs and execute compute_correct_assemble_rc_dti function in parallel
 parfor iSubj = 1:length(subjIDs)
+    tic
     compute_correct_assemble_rc_dti(iSubj, subjIDs{iSubj}, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
         FILES, rcResults, rcDensity, TIV_LINE_NUMBER);
+    toc
 end
 
+%% subfunction
 function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
     FILES, rcResults, rcDensity, TIV_LINE_NUMBER)
+    %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, subjID, 'DWI_processed_v311');
     cd(resultsDir);
-    
-    %% compute rc coefficient and p-values
-    tic
-
     for iFile = 1:length(FILES)
         try
             n=dir(FILES{iFile}); load(n.name) % load file
@@ -128,13 +131,14 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','false');
     
-              xp = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
+              xp = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05); %%%%%%%%%%%%%%%%%%%%%besser eindeutigetr Variablenname: rcRangeIndexes 
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(xp) max(xp)]; % rc range
               
               % identify values with p>=0.05 within range
-              idx = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p(min(xp):max(xp));
-              n = length(idx);
-              idx1 = (idx > 0.05); % idx1 contains positions in RC range where p > 0.05
+              idx = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p(min(xp):max(xp)); %%%%%%%%%%%%%% besser eindeutigetr Variablenname: rcRangePvalues
+              n = length(idx); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% besser eindeutigetr Variablenname: rcRangeLength
+              idx1 = (idx > 0.05); % idx1 contains positions in RC range where p > 0.05 %%%%%%%%%%%%% besser eindeutigetr Variablenname: outlierInRcRangeBool
+			  
               
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(idx1);
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 0;
@@ -143,24 +147,24 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
               if sum(idx1) > 1 % if there's more than 1 outlier
                   
                   % Range of RC range between minimum and maximum K in RC range > 0.05
-                  x_RC = 1:n; x_RC_p = x_RC(idx1);
-                  idx_bigger = idx(1,min(x_RC_p):max(x_RC_p)); 
-                  idx2 = (idx_bigger < 0.05);
+                  x_RC = 1:n; x_RC_p = x_RC(idx1); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% einfacher und leichter verständlich: outliersIndexesInRcRange = find(idx1) 
+                  idx_bigger = idx(1,min(x_RC_p):max(x_RC_p)); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% pvaluesFirstOutlierToLastOutlier
+                  idx2 = (idx_bigger < 0.05); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% rcInOutlierRangeBool
                   
                   % If range of p-values above 0.05 is continous, select bigger RC-range and define 
                   % it as adjusted RC range
                   if sum(idx2) <= 1
-                      a = length(idx(1,1:(min(x_RC_p)-1)));
-                      b = length(idx(1,(max(x_RC_p)+1):n));
-                      if a > (1.5*b)
-                          idx_cor = zeros(1,n);
+                      a = length(idx(1,1:(min(x_RC_p)-1))); %% The first index is nnecessary in a 1D Matrix %%%%%%%%%%%%%% nRcEntriesBeforeFirstOutlier
+                      b = length(idx(1,(max(x_RC_p)+1):n)); %%%%%%%%%%%%%% nRcEntriesAfterLastOutlier
+                      if a > (1.5*b) % most rc entries before outliers
+                          idx_cor = zeros(1,n);	%%%%% This line and others are executed in all alternative routes --> move this out of the if-structure
                           idx_cor(1,1:(min(x_RC_p)-1)) = 1;
                           idx_cor = logical(idx_cor);
                           x_cor = min(xp):max(xp);
                           x_cor_p = x_cor(idx_cor);
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [min(x_cor_p) max(x_cor_p)];
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
-                      elseif b > (1.5*a)
+                      elseif b > (1.5*a) % most rc entries after outliers %% The routine here is the same as in the else-case --> melt into one case: the else case
                           idx_cor = zeros(1,n);
                           idx_cor(1,(max(x_RC_p)+1):n) = 1;
                           idx_cor = logical(idx_cor);
@@ -169,7 +173,7 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(x_cor_p) max(x_cor_p)];
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
                           
-                      % If no RC range is 1.5 times bigger than other, select RC-range with 
+                      % If no RC range is 1.5 times bigger than the other, select RC-range with 
                       % higher K values
                       else
                           idx_cor = zeros(1,n);
@@ -180,14 +184,14 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(x_cor_p) max(x_cor_p)];
                           rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1; 
                       end
-                  % If there is only two outliers all continous p-values above 0.05 are ignored
-                  elseif (length(idx2) - sum(idx2)) == 2 
+                  % If there is only two outliers all continous p-values above 0.05 are ignored %%%% Ist das einfach eine random Entscheidung, weil man eben irgendeinen cutoff braucht?
+                  elseif (length(idx2) - sum(idx2)) == 2 %% Könnte man hier nicht einfacher sum(idx1) == 2 abfragen? analog  zu erster Abfrage mit "if sum(idx1) > 1 % if there's more than 1 outlier"
                       rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  1;
                   % If range of p-values above 0.05 is not continous, exclude subjects from analysis
                   else
                       rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
                   end
-              elseif sum(idx1) == 1
+              elseif sum(idx1) == 1 %%%%%% Dieser Fall ist doch eigentlich schon abgehandelt mit "rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(idx1);", oder? Wieso wird hier noch ein zweiter Eintrag im Outliers-Feld gemacht (Outliers(2))?
                   rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers(2) = 1; 
               end
               
@@ -281,5 +285,4 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
         fprintf('\t Error in line %d in function %s: %s\n', ...
             ME.stack(1).line, ME.stack(1).name, ME.message);
     end
-    toc
 end
