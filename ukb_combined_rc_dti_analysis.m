@@ -122,6 +122,7 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
         %% correct rc range in cases where there is no unambiguous rc regime
         try
             for iEdgeWeight = 1:length(EDGE_WEIGHTS)
+			
                 % phi max and corresponding k  
                 [rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(1,1), ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(1,2)] = max( ...
@@ -131,68 +132,56 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','false');
     
-              xp = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05); %%%%%%%%%%%%%%%%%%%%%besser eindeutigetr Variablenname: rcRangeIndexes 
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(xp) max(xp)]; % rc range
+              rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
+              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(rcIndexes) max(rcIndexes)];
               
               % identify values with p>=0.05 within range
-              idx = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p(min(xp):max(xp)); %%%%%%%%%%%%%% besser eindeutigetr Variablenname: rcRangePvalues
-              n = length(idx); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% besser eindeutigetr Variablenname: rcRangeLength
-              idx1 = (idx > 0.05); % idx1 contains positions in RC range where p > 0.05 %%%%%%%%%%%%% besser eindeutigetr Variablenname: outlierInRcRangeBool
+              rcRangePvalues = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p( ...
+                  min(rcIndexes):max(rcIndexes));
+              rcRangeLength = length(rcRangePvalues);
+              isOutlierInRcRange = (rcRangePvalues > 0.05); % positions in RC range where p > 0.05
 			  
               
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(idx1);
+              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(isOutlierInRcRange);
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 0;
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  0;
                     
-              if sum(idx1) > 1 % if there's more than 1 outlier
+              if sum(isOutlierInRcRange) > 1 % if there's more than 1 outlier
                   
                   % Range of RC range between minimum and maximum K in RC range > 0.05
-                  x_RC = 1:n; x_RC_p = x_RC(idx1); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% einfacher und leichter verständlich: outliersIndexesInRcRange = find(idx1) 
-                  idx_bigger = idx(1,min(x_RC_p):max(x_RC_p)); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% pvaluesFirstOutlierToLastOutlier
-                  idx2 = (idx_bigger < 0.05); %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% rcInOutlierRangeBool
+                  outliersIndexesInRcRange = find(isOutlierInRcRange);
+                  pvaluesFirstOutlierToLastOutlier = rcRangePvalues( ...
+                      min(outliersIndexesInRcRange):max(outliersIndexesInRcRange));
+                  nNonOutliersInOutlierRange = sum(pvaluesFirstOutlierToLastOutlier < 0.05); 
                   
                   % If range of p-values above 0.05 is continous, select bigger RC-range and define 
                   % it as adjusted RC range
-                  if sum(idx2) <= 1
-                      a = length(idx(1,1:(min(x_RC_p)-1))); %% The first index is nnecessary in a 1D Matrix %%%%%%%%%%%%%% nRcEntriesBeforeFirstOutlier
-                      b = length(idx(1,(max(x_RC_p)+1):n)); %%%%%%%%%%%%%% nRcEntriesAfterLastOutlier
-                      if a > (1.5*b) % most rc entries before outliers
-                          idx_cor = zeros(1,n);	%%%%% This line and others are executed in all alternative routes --> move this out of the if-structure
-                          idx_cor(1,1:(min(x_RC_p)-1)) = 1;
-                          idx_cor = logical(idx_cor);
-                          x_cor = min(xp):max(xp);
-                          x_cor_p = x_cor(idx_cor);
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [min(x_cor_p) max(x_cor_p)];
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
-                      elseif b > (1.5*a) % most rc entries after outliers %% The routine here is the same as in the else-case --> melt into one case: the else case
-                          idx_cor = zeros(1,n);
-                          idx_cor(1,(max(x_RC_p)+1):n) = 1;
-                          idx_cor = logical(idx_cor);
-                          x_cor = min(xp):max(xp);
-                          x_cor_p = x_cor(idx_cor);
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(x_cor_p) max(x_cor_p)];
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
-                          
-                      % If no RC range is 1.5 times bigger than the other, select RC-range with 
-                      % higher K values
-                      else
-                          idx_cor = zeros(1,n);
-                          idx_cor(1,(max(x_RC_p)+1):n) = 1;
-                          idx_cor = logical(idx_cor);
-                          x_cor = min(xp):max(xp);
-                          x_cor_p = x_cor(idx_cor);
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(x_cor_p) max(x_cor_p)];
-                          rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1; 
+                  if nNonOutliersInOutlierRange <= 1
+                      nRcEntriesBeforeFirstOutlier = length( ...
+                          1:(min(outliersIndexesInRcRange)-1)); 
+                      nRcEntriesAfterLastOutlier = length( ...
+                          (max(outliersIndexesInRcRange)+1):rcRangeLength);
+						  
+					  % most rc entries before outliers
+                      if nRcEntriesBeforeFirstOutlier > (1.5*nRcEntriesAfterLastOutlier)
+						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
+                              min(rcIndexes) min(outliersIndexesInRcRange)-1];
+							  
+					  % most rc entries after outliers or no RC range is 1.5 times bigger 
+                      else 
+						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
+                              (max(outliersIndexesInRcRange)+1) max(rcIndexes)];
                       end
-                  % If there is only two outliers all continous p-values above 0.05 are ignored %%%% Ist das einfach eine random Entscheidung, weil man eben irgendeinen cutoff braucht?
-                  elseif (length(idx2) - sum(idx2)) == 2 %% Könnte man hier nicht einfacher sum(idx1) == 2 abfragen? analog  zu erster Abfrage mit "if sum(idx1) > 1 % if there's more than 1 outlier"
+					  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
+					  
+                  % If there is only two outliers they are ignored 
+                  elseif sum(isOutlierInRcRange) == 2 
                       rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  1;
+					  
                   % If range of p-values above 0.05 is not continous, exclude subjects from analysis
                   else
                       rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
                   end
-              elseif sum(idx1) == 1 %%%%%% Dieser Fall ist doch eigentlich schon abgehandelt mit "rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(idx1);", oder? Wieso wird hier noch ein zweiter Eintrag im Outliers-Feld gemacht (Outliers(2))?
-                  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers(2) = 1; 
               end
               
               % assemble relevant metrics
