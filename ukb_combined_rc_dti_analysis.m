@@ -70,6 +70,11 @@ parfor iSubj = 1:length(subjIDs)
         FILES, rcResults, rcDensity, TIV_LINE_NUMBER);
     toc
 end
+savefile=RESULTS_DESTINATION
+save(savefile, 'rcResults');
+
+savefile=DENSITY_DESTINATION
+save(savefile, 'rcDensity');
 
 %% subfunction
 function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
@@ -264,12 +269,6 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
     try 
         savefile='richclub_adj_TEST.mat'
         save(savefile,'rc')
-
-        savefile=RESULTS_DESTINATION
-        save(savefile, 'rcResults');
-
-        savefile=DENSITY_DESTINATION
-        save(savefile, 'rcDensity');
     catch ME
         fprintf('\t Error in line %d in function %s: %s\n', ...
             ME.stack(1).line, ME.stack(1).name, ME.message);
