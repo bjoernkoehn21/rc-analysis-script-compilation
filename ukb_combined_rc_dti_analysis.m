@@ -65,22 +65,26 @@ parpool('local', N_PARALLEL_WORKERS);
 
 % loop over subject IDs and execute compute_correct_assemble_rc_dti function in parallel
 parfor iSubj = 1:length(subjIDs)
+%for iSubj = 1:length(subjIDs)
     tic
-    compute_correct_assemble_rc_dti(iSubj, subjIDs{iSubj}, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+    compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjIDs{iSubj}, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
         FILES, rcResults, rcDensity, TIV_LINE_NUMBER);
     toc
 end
+delete(gcp('nocreate'));
 savefile=RESULTS_DESTINATION
-save(savefile, 'rcResults');
+rcResultsTEST = rcResults;
+save(savefile, 'rcResultsTEST');
 
 savefile=DENSITY_DESTINATION
-save(savefile, 'rcDensity');
+rcDensityTEST = rcDensity;
+save(savefile, 'rcDensityTEST');
 
 %% subfunction
-function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
     FILES, rcResults, rcDensity, TIV_LINE_NUMBER)
     %% compute rc coefficient and p-values
-    resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, subjID, 'DWI_processed_v311');
+    resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
     for iFile = 1:length(FILES)
         try
@@ -199,7 +203,7 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                   EDGE_WEIGHTS{iEdgeWeight}).range;
               
               rcResults{iSubj}.integral.norm(iFile,iEdgeWeight) = trapz( ...
-                  ind(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)), ...
+                  find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)), ...
                   rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
                   ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
               rcResults{iSubj}.integral.emp(iFile,iEdgeWeight) = trapz( ...
@@ -229,10 +233,26 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
                 ME.stack(1).line, ME.stack(1).name, ME.message);
         end
     end
-    
+
+
     try
-        %% read transcranial volume in line (TIV_LINE_NUMBER-1) from FreeSurfer file 'aseg.stats'
-        fid = fopen('../T1w/freesurfer/stats/aseg.stats');
+	savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '_TEST.mat']
+	save(savefile,'rc')
+    catch ME
+	fprintf('\t Error in line %d in function %s: %s\n', ...
+	    ME.stack(1).line, ME.stack(1).name, ME.message);
+    end
+
+    try
+    %% read transcranial volume in line (TIV_LINE_NUMBER-1) from FreeSurfer file 'aseg.stats'
+	PATH_TO_FREESURFER_FILES = '/slow/projects/01_UKB/surface/00_batch1';
+	disp(subjID)
+	freesurferDir = fullfile(PATH_TO_FREESURFER_FILES, num2str(subjID));
+	%cd(fullfile('../../../../surface/00_batch1', subjID)) %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% This is new and still to be tested
+	cd(freesurferDir)
+
+	system(['unzip -qq *zip FreeSurfer/stats/aseg.stats']);
+        fid = fopen('FreeSurfer/stats/aseg.stats');
         for ii = 1:(TIV_LINE_NUMBER-1) % skip unrelevant lines
             fgetl(fid);
         end
@@ -249,28 +269,23 @@ function compute_correct_assemble_rc_dti(iSubj, subjID, N_RANDOM_NETWORKS, EDGE_
     %% calculate mean FA
     
     % Binarize aparc+aseg.mgz and save as wm.mask.mgz
-    system('mri_binarize --i ../T1w/freesurfer/mri/aparc+aseg.mgz --wm --o wm.mask.mgz');
+    system(['unzip -qq *zip FreeSurfer/mri/aparc+aseg.mgz']);
+    system(['mri_binarize --i FreeSurfer/mri/aparc+aseg.mgz --wm --o wm.mask.mgz']);
  
     % Convert wm.mask.mgz to wm.nii.gz using nearest-neighbor interpolation
-    system(['/opt/freesurfer/bin/mri_convert -rt nearest -rl ' resultsDir ...
+    system(['/opt/freesurfer/bin/mri_convert -rt nearest -rl ' resultsDir...
         '/*_fractional_anisotropy.nii.gz wm.mask.mgz wm.nii.gz']);
  
     % Compute mean FA within wm.nii.gz mask and save as meanfa.txt
     system(['fslmeants -i ' resultsDir ...
-        '/*_fractional_anisotropy.nii.gz -m wm.nii.gz -o meanfa.txt']);
- 
-    % Clean up
-    system('rm -f wm*');
+        '/*_fractional_anisotropy.nii.gz -m wm.nii.gz -o meanfa_TEST.txt']);
+
+    % Remove the FreeSurfer directory and files
+    rmdir('FreeSurfer', 's');
+    delete('wm*');
     catch ME
         fprintf('\t Error in line %d in function %s: %s\n', ...
             ME.stack(1).line, ME.stack(1).name, ME.message);
-    end
-    
-    try 
-        savefile='richclub_adj_TEST.mat'
-        save(savefile,'rc')
-    catch ME
-        fprintf('\t Error in line %d in function %s: %s\n', ...
-            ME.stack(1).line, ME.stack(1).name, ME.message);
-    end
+    end		
 end
+
