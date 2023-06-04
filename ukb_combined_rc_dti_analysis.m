@@ -142,7 +142,7 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm) ;
                 
                 % fdr-correction of p-values (adjusted p-values)
-                [~, ~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
+                [~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','false');
     
               rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
