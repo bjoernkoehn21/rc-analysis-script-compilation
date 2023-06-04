@@ -103,11 +103,17 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
             rc{iFile}.fa.rand=zeros(length(rc{iFile}.fa.emp), N_RANDOM_NETWORKS);
             rc{iFile}.svd.rand=zeros(length(rc{iFile}.svd.emp), N_RANDOM_NETWORKS);
 			
+			% produce random networks for normalization
 			for iRandomNetwork = 1:N_RANDOM_NETWORKS
-			    rng(SEED)
+				if rem(iRandomNetwork,500) == 0
+					fprintf('subject %s, file %d, network number %d\n' , ...
+						subjID, iFile, iRandomNetwork)
+				end
+					
+			    rng(SEED, 'twister')
 				rc{iFile}.fa.rand(:,iRandomNetwork) = rich_club_wu( ...
 					randmio_und(connectivity(:,:,3),10),length(rc{iFile}.fa.emp));
-				rng(SEED)
+				rng(SEED, 'twister')
 				rc{iFile}.svd.rand(:,iRandomNetwork) = rich_club_wu( ...
 					randmio_und(connectivity(:,:,13),10),length(rc{iFile}.svd.emp));
 			end
@@ -136,7 +142,7 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm) ;
                 
                 % fdr-correction of p-values (adjusted p-values)
-                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
+                [~, ~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','false');
     
               rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
