@@ -18,16 +18,17 @@ RESULTS_DESTINATION = '/slow/projects/01_UKB/dti/rc_results_220622_TEST.mat';
 DENSITY_DESTINATION = '/slow/projects/01_UKB/dti/rcdense_TEST.mat';
 
 % define constants
-N_PARALLEL_WORKERS = 4; %100;
-N_RANDOM_NETWORKS = 10; %2500;
+N_PARALLEL_WORKERS = 100;
+N_RANDOM_NETWORKS = 2500;
 TIV_LINE_NUMBER = 35; % line number in freesurfer/stats/aseg.stats; TIV=total intracranial volume
-EDGE_WEIGHTS={'fa' 'svd'}; % fractional anisotropy, streamline volume density
+EDGE_WEIGHTS = {'fa' 'svd'}; % fractional anisotropy, streamline volume density
 FILES={'*_connectivity_csd_dti_aparc.mat'
 '*_connectivity_csd_dti_lausanne120.mat'
 '*_connectivity_csd_dti_lausanne250.mat'
 '*_connectivity_gqi_dti_aparc.mat'
 '*_connectivity_gqi_dti_lausanne120.mat'
 '*_connectivity_gqi_dti_lausanne250.mat'};
+SEED = 1;
 
 % read in subjects IDs from subjIDs.txt
 fid = fopen(SUBJECTS_ID_FILE, 'r');
@@ -68,7 +69,7 @@ parfor iSubj = 1:length(subjIDs)
 %for iSubj = 1:length(subjIDs)
     tic
     compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjIDs{iSubj}, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-        FILES, rcResults, rcDensity, TIV_LINE_NUMBER);
+        FILES, rcResults, rcDensity, TIV_LINE_NUMBER, SEED);
     toc
 end
 delete(gcp('nocreate'));
@@ -82,13 +83,13 @@ save(savefile, 'rcDensityTEST');
 
 %% subfunction
 function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-    FILES, rcResults, rcDensity, TIV_LINE_NUMBER)
+    FILES, rcResults, rcDensity, TIV_LINE_NUMBER, SEED)
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
     for iFile = 1:length(FILES)
         try
-            n=dir(FILES{iFile}); load(n.name) % load file
+			load(dir(FILES{iFile}).name) % load iFile
             
             % calculate rc coefficients for empirical network
             rc{iFile}.fa.emp=rich_club_wu(connectivity(:,:,3));
@@ -101,32 +102,29 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
             % preallocate (size not known beforehand [before executing rich_club_wu])
             rc{iFile}.fa.rand=zeros(length(rc{iFile}.fa.emp), N_RANDOM_NETWORKS);
             rc{iFile}.svd.rand=zeros(length(rc{iFile}.svd.emp), N_RANDOM_NETWORKS);
-            rc{iFile}.fa.pvals=zeros(1,1);
-            rc{iFile}.svd.pvals=zeros(1,1);
+			
+			for iRandomNetwork = 1:N_RANDOM_NETWORKS
+			    rng(SEED)
+				rc{iFile}.fa.rand(:,iRandomNetwork) = rich_club_wu( ...
+					randmio_und(connectivity(:,:,3),10),length(rc{iFile}.fa.emp));
+				rng(SEED)
+				rc{iFile}.svd.rand(:,iRandomNetwork) = rich_club_wu( ...
+					randmio_und(connectivity(:,:,13),10),length(rc{iFile}.svd.emp));
+			end
+        
+			% normalize
+			rc{iFile}.fa.norm = rc{iFile}.fa.emp./mean(rc{iFile}.fa.rand,2)';
+			rc{iFile}.svd.norm = rc{iFile}.svd.emp./mean(rc{iFile}.svd.rand,2)';
+
+			% calculate p-values
+			rc{iFile}.fa.pvals = 1 - mean(rc{iFile}.fa.emp > rc{iFile}.fa.rand', 1);
+			rc{iFile}.svd.pvals = 1 - mean(rc{iFile}.svd.emp > rc{iFile}.svd.rand', 1);
+			
         catch ME
             fprintf('\t Error in line %d in function %s: %s\n', ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
             rc{iFile} = [];
-        end
-    end
-
-    
-    for iFile = 1:length(FILES)
-        for iRandomNetwork = 1:N_RANDOM_NETWORKS
-            rc{iFile}.fa.rand(:,iRandomNetwork) = rich_club_wu( ...
-                randmio_und(connectivity(:,:,3),10),length(rc{iFile}.fa.emp));
-            rc{iFile}.svd.rand(:,iRandomNetwork) = rich_club_wu( ...
-                randmio_und(connectivity(:,:,13),10),length(rc{iFile}.svd.emp));
-        end
-        
-        % normalize
-        rc{iFile}.fa.norm = rc{iFile}.fa.emp./mean(rc{iFile}.fa.rand,2)';
-        rc{iFile}.svd.norm = rc{iFile}.svd.emp./mean(rc{iFile}.svd.rand,2)';
-
-        % calculate p-values
-        rc{iFile}.fa.pvals = 1 - mean(rc{iFile}.fa.emp > rc{iFile}.fa.rand', 1);
-        rc{iFile}.svd.pvals = 1 - mean(rc{iFile}.svd.emp > rc{iFile}.svd.rand', 1);
-            
+        end   
             
         %% correct rc range in cases where there is no unambiguous rc regime
         try
@@ -193,7 +191,7 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                   end
               end
               
-              % assemble relevant metrics
+              %% assemble relevant metrics
               rcResults{iSubj}.id = subjID;
               rcResults{iSubj}.max_phi(iFile,iEdgeWeight) = rc{iFile}.( ...
                   EDGE_WEIGHTS{iEdgeWeight}).kmax(1);
@@ -243,12 +241,11 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
 	    ME.stack(1).line, ME.stack(1).name, ME.message);
     end
 
+	%% read transcranial volume from line (TIV_LINE_NUMBER-1) from FreeSurfer file 'aseg.stats'
     try
-    %% read transcranial volume in line (TIV_LINE_NUMBER-1) from FreeSurfer file 'aseg.stats'
 	PATH_TO_FREESURFER_FILES = '/slow/projects/01_UKB/surface/00_batch1';
 	disp(subjID)
 	freesurferDir = fullfile(PATH_TO_FREESURFER_FILES, num2str(subjID));
-	%cd(fullfile('../../../../surface/00_batch1', subjID)) %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% This is new and still to be tested
 	cd(freesurferDir)
 
 	system(['unzip -qq *zip FreeSurfer/stats/aseg.stats']);
@@ -266,8 +263,8 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
         fid = fopen('tiv_TEST.txt', 'w');
         fprintf(fid, '%s', tiv{1});
         fclose(fid);
+		
     %% calculate mean FA
-    
     % Binarize aparc+aseg.mgz and save as wm.mask.mgz
     system(['unzip -qq *zip FreeSurfer/mri/aparc+aseg.mgz']);
     system(['mri_binarize --i FreeSurfer/mri/aparc+aseg.mgz --wm --o wm.mask.mgz']);
@@ -288,4 +285,3 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
             ME.stack(1).line, ME.stack(1).name, ME.message);
     end		
 end
-
