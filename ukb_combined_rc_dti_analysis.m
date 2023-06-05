@@ -14,8 +14,8 @@ system(fullfile(getenv('FREESURFER_HOME'), 'SetUpFreeSurfer.sh'));
 % define destination of results and other relevant paths and file names
 SUBJECTS_ID_FILE = 'ukb_subjIDs.txt';
 PATH_TO_SUBJECT_DIRS = '/slow/projects/01_UKB/dti/00_batch1';
-RESULTS_DESTINATION = '/slow/projects/01_UKB/dti/rc_results_220622_TEST.mat';
-DENSITY_DESTINATION = '/slow/projects/01_UKB/dti/rcdense_TEST.mat';
+RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
+	datestr(now, 'yyyymmdd'), '_TEST.mat'];
 
 % define constants
 N_PARALLEL_WORKERS = 100;
@@ -48,13 +48,10 @@ rcResults(:) = {struct( ...
         'emp', zeros(length(FILES), length(EDGE_WEIGHTS)), ...
         'rand', zeros(length(FILES), length(EDGE_WEIGHTS)), ...
         'above', zeros(length(FILES), length(EDGE_WEIGHTS))), ...
-    'odd', zeros(4, length(FILES), length(EDGE_WEIGHTS)))};
-
-% preallocate space for density-of-empirical-networks matrix before loop for time reasons
-rcDensity = cell(length(subjIDs), 1);
-rcDensity(:) = {struct( ...
-    'fa', zeros(length(FILES), 1), ...
-    'svd', zeros(length(FILES), 1))};
+    'odd', zeros(4, length(FILES), length(EDGE_WEIGHTS)), ...
+	'density', struct( ...
+		'fa', zeros(length(FILES), 1), ...
+		'svd', zeros(length(FILES), 1)))};
 
 %% Main process 
 
@@ -69,7 +66,7 @@ parfor iSubj = 1:length(subjIDs)
 %for iSubj = 1:length(subjIDs)
     tic
     compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjIDs{iSubj}, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-        FILES, rcResults, rcDensity, TIV_LINE_NUMBER, SEED);
+        FILES, rcResults, TIV_LINE_NUMBER, SEED);
     toc
 end
 delete(gcp('nocreate'));
@@ -77,13 +74,9 @@ savefile=RESULTS_DESTINATION
 rcResultsTEST = rcResults;
 save(savefile, 'rcResultsTEST');
 
-savefile=DENSITY_DESTINATION
-rcDensityTEST = rcDensity;
-save(savefile, 'rcDensityTEST');
-
 %% subfunction
 function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-    FILES, rcResults, rcDensity, TIV_LINE_NUMBER, SEED)
+    FILES, rcResults, TIV_LINE_NUMBER, SEED)
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
@@ -96,8 +89,8 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
             rc{iFile}.svd.emp=rich_club_wu(connectivity(:,:,13));
             
             % calculate densities
-            rcDensity{iSubj}.fa(iFile)=density_und(connectivity(:,:,3));
-            rcDensity{iSubj}.svd(iFile)=density_und(connectivity(:,:,13));
+            rcResults{iSubj}.density.fa(iFile)=density_und(connectivity(:,:,3));
+            rcResults{iSubj}.density.svd(iFile)=density_und(connectivity(:,:,13));
             
             % preallocate (size not known beforehand [before executing rich_club_wu])
             rc{iFile}.fa.rand=zeros(length(rc{iFile}.fa.emp), N_RANDOM_NETWORKS);
@@ -142,8 +135,8 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm) ;
                 
                 % fdr-correction of p-values (adjusted p-values)
-                [~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p = fdr_bh( ...
-                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','false');
+                [~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p] = fdr_bh( ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','no');
     
               rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
               rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(rcIndexes) max(rcIndexes)];
@@ -170,20 +163,19 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                   % If range of p-values above 0.05 is continous, select bigger RC-range and define 
                   % it as adjusted RC range
                   if nNonOutliersInOutlierRange <= 1
-                      nRcEntriesBeforeFirstOutlier = length( ...
-                          1:(min(outliersIndexesInRcRange)-1)); 
+                      nRcEntriesBeforeFirstOutlier = length(1:(min(outliersIndexesInRcRange)-1)); 
                       nRcEntriesAfterLastOutlier = length( ...
                           (max(outliersIndexesInRcRange)+1):rcRangeLength);
 						  
 					  % most rc entries before outliers
                       if nRcEntriesBeforeFirstOutlier > (1.5*nRcEntriesAfterLastOutlier)
 						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
-                              min(rcIndexes) min(outliersIndexesInRcRange)-1];
+                              min(rcIndexes) (min(rcIndexes) + nRcEntriesBeforeFirstOutlier -1)];
 							  
 					  % most rc entries after outliers or no RC range is 1.5 times bigger 
                       else 
 						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
-                              (max(outliersIndexesInRcRange)+1) max(rcIndexes)];
+                              (max(rcIndexes) - nRcEntriesAfterLastOutlier + 1) max(rcIndexes)];
                       end
 					  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
 					  
