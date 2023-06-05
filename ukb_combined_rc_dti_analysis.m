@@ -29,6 +29,8 @@ FILES={'*_connectivity_csd_dti_aparc.mat'
 '*_connectivity_gqi_dti_lausanne120.mat'
 '*_connectivity_gqi_dti_lausanne250.mat'};
 SEED = 1;
+RC_DOMINION_RATIO = 1.5;
+SIGNIFICANCE_LEVEL = 0.5;
 
 % read in subjects IDs from subjIDs.txt
 fid = fopen(SUBJECTS_ID_FILE, 'r');
@@ -136,93 +138,95 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
                 
                 % fdr-correction of p-values (adjusted p-values)
                 [~, ~, rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p] = fdr_bh( ...
-                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals,.05,'pdep','no');
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).pvals, SIGNIFICANCE_LEVEL, 'pdep', 'no');
     
-              rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < 0.05);
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(rcIndexes) max(rcIndexes)];
+                rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < SIGNIFICANCE_LEVEL);
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(rcIndexes) max(rcIndexes)];
               
-              % identify values with p>=0.05 within range
-              rcRangePvalues = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p( ...
-                  min(rcIndexes):max(rcIndexes));
-              rcRangeLength = length(rcRangePvalues);
-              isOutlierInRcRange = (rcRangePvalues > 0.05); % positions in RC range where p > 0.05
+                % identify values with p>=0.05 within range
+                rcRangePvalues = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p( ...
+                    min(rcIndexes):max(rcIndexes));
+                rcRangeLength = length(rcRangePvalues);
+                isOutlierInRcRange = (rcRangePvalues > SIGNIFICANCE_LEVEL);
 			  
               
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(isOutlierInRcRange);
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 0;
-              rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  0;
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(isOutlierInRcRange);
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 0;
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  0;
                     
-              if sum(isOutlierInRcRange) > 1 % if there's more than 1 outlier
+                if sum(isOutlierInRcRange) > 1 % if there's more than 1 outlier
                   
-                  % Range of RC range between minimum and maximum K in RC range > 0.05
-                  outliersIndexesInRcRange = find(isOutlierInRcRange);
-                  pvaluesFirstOutlierToLastOutlier = rcRangePvalues( ...
-                      min(outliersIndexesInRcRange):max(outliersIndexesInRcRange));
-                  nNonOutliersInOutlierRange = sum(pvaluesFirstOutlierToLastOutlier < 0.05); 
+					% Range of RC range between minimum and maximum K in RC range > 0.05
+					outliersIndexesInRcRange = find(isOutlierInRcRange);
+					pvaluesFirstOutlierToLastOutlier = rcRangePvalues( ...
+						min(outliersIndexesInRcRange):max(outliersIndexesInRcRange));
+					nNonOutliersInOutlierRange = sum( ...
+						pvaluesFirstOutlierToLastOutlier < SIGNIFICANCE_LEVEL); 
                   
-                  % If range of p-values above 0.05 is continous, select bigger RC-range and define 
-                  % it as adjusted RC range
-                  if nNonOutliersInOutlierRange <= 1
-                      nRcEntriesBeforeFirstOutlier = length(1:(min(outliersIndexesInRcRange)-1)); 
-                      nRcEntriesAfterLastOutlier = length( ...
-                          (max(outliersIndexesInRcRange)+1):rcRangeLength);
+                    % If range of p-values above 0.05 is continous, select bigger RC-range and  
+                    % define it as adjusted RC range
+                    if nNonOutliersInOutlierRange <= 1
+                        nRcEntriesBeforeFirstOutlier = length(1:(min(outliersIndexesInRcRange)-1)); 
+                        nRcEntriesAfterLastOutlier = length( ...
+                            (max(outliersIndexesInRcRange)+1):rcRangeLength);
 						  
-					  % most rc entries before outliers
-                      if nRcEntriesBeforeFirstOutlier > (1.5*nRcEntriesAfterLastOutlier)
-						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
-                              min(rcIndexes) (min(rcIndexes) + nRcEntriesBeforeFirstOutlier -1)];
+					    % most rc entries before outliers
+                        if nRcEntriesBeforeFirstOutlier > ( ...
+							RC_DOMINION_RATIO * nRcEntriesAfterLastOutlier)
+						    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
+                                min(rcIndexes) (min(rcIndexes) + nRcEntriesBeforeFirstOutlier -1)];
 							  
-					  % most rc entries after outliers or no RC range is 1.5 times bigger 
-                      else 
-						  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
-                              (max(rcIndexes) - nRcEntriesAfterLastOutlier + 1) max(rcIndexes)];
-                      end
-					  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
+					    % most rc entries after outliers or no RC range is 1.5 times bigger 
+                        else 
+						    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
+                                (max(rcIndexes) - nRcEntriesAfterLastOutlier + 1) max(rcIndexes)];
+                        end
+					    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
 					  
-                  % If there is only two outliers they are ignored 
-                  elseif sum(isOutlierInRcRange) == 2 
-                      rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  1;
+					    % If there is only two outliers they are ignored 
+                    elseif sum(isOutlierInRcRange) == 2 
+                        rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  1;
 					  
-                  % If range of p-values above 0.05 is not continous, exclude subjects from analysis
-                  else
-                      rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
-                  end
-              end
+                    % If range of p-vals above .05 is not continous, exclude subjects from analysis
+                    else
+                        rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
+                    end
+                end
               
-              %% assemble relevant metrics
-              rcResults{iSubj}.id = subjID;
-              rcResults{iSubj}.max_phi(iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).kmax(1);
-              rcResults{iSubj}.max_k(iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).kmax(2);
-              rcResults{iSubj}.range(:,iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).range;
+                %% assemble relevant metrics
+                rcResults{iSubj}.id = subjID;
+                rcResults{iSubj}.max_phi(iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).kmax(1);
+                rcResults{iSubj}.max_k(iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).kmax(2);
+                rcResults{iSubj}.range(:,iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).range;
               
-              rcResults{iSubj}.integral.norm(iFile,iEdgeWeight) = trapz( ...
-                  find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)), ...
-                  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
-                  ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
-              rcResults{iSubj}.integral.emp(iFile,iEdgeWeight) = trapz( ...
-                  find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp)), ...
-                  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp( ...
-                  ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp)));
-              rcResults{iSubj}.integral.rand(iFile,iEdgeWeight) = trapz( ...
-                  find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand)), ...
-                  rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand( ...
-                  ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand)));
-              rcResults{iSubj}.integral.above(iFile,iEdgeWeight) = rcResults{ ...
-                  iSubj}.integral.norm(iFile,iEdgeWeight) - ...
-                  length(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
-                  ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
+                rcResults{iSubj}.integral.norm(iFile,iEdgeWeight) = trapz( ...
+                    find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)), ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
+                    ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
+                rcResults{iSubj}.integral.emp(iFile,iEdgeWeight) = trapz( ...
+                    find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp)), ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp( ...
+                    ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp)));
+                rcResults{iSubj}.integral.rand(iFile,iEdgeWeight) = trapz( ...
+                    find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand)), ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand( ...
+                    ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand)));
+                rcResults{iSubj}.integral.above(iFile,iEdgeWeight) = rcResults{ ...
+                    iSubj}.integral.norm(iFile,iEdgeWeight) - ...
+                    length(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
+                    ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
               
-              rcResults{iSubj}.odd(1,iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).Outliers(1);
-              rcResults{iSubj}.odd(2,iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected;
-              rcResults{iSubj}.odd(3,iFile,iEdgeWeight) = rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).Ignored;
-              rcResults{iSubj}.odd(4,iFile,iEdgeWeight) = length(rc{iFile}.( ...
-                  EDGE_WEIGHTS{iEdgeWeight}).range); 
+                rcResults{iSubj}.odd(1,iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).Outliers(1);
+                rcResults{iSubj}.odd(2,iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected;
+                rcResults{iSubj}.odd(3,iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).Ignored;
+                rcResults{iSubj}.odd(4,iFile,iEdgeWeight) = length(rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).range); 
             end
         catch ME
             fprintf('\t Error in line %d in function %s: %s\n', ...
@@ -232,7 +236,7 @@ function compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, iSubj, subjID, N_
 
 
     try
-	savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '_TEST.mat']
+	savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '_TEST.mat'] %% This matrix should be saved in DWI_processed_v311. But currently the access rights prohibit this.
 	save(savefile,'rc')
     catch ME
 	fprintf('\t Error in line %d in function %s: %s\n', ...
