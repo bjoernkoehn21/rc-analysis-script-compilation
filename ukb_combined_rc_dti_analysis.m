@@ -14,10 +14,8 @@ system(fullfile(getenv('FREESURFER_HOME'), 'SetUpFreeSurfer.sh'));
 % define destination of results and other relevant paths and file names
 SUBJECTS_ID_FILE = 'ukb_subjIDs.txt';
 PATH_TO_SUBJECT_DIRS = '/slow/projects/01_UKB/dti/00_batch1';
-%RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
-%	datestr(now, 'yyyymmdd'), '_TEST.mat'];
-RESULTS_DESTINATION = '/slow/projects/01_UKB/dti/rc_results_220622_TEST.mat';
-DENSITY_DESTINATION = '/slow/projects/01_UKB/dti/rcdense_TEST.mat';
+RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
+	datestr(now, 'yyyymmdd'), '_TEST.mat'];
 
 % define constants
 N_PARALLEL_WORKERS = 100;
@@ -53,16 +51,9 @@ rcResults(:) = {struct( ...
         'rand', nan(length(FILES), length(EDGE_WEIGHTS)), ...
         'above', nan(length(FILES), length(EDGE_WEIGHTS))), ...
     'odd', nan(4, length(FILES), length(EDGE_WEIGHTS))  )};%, ...
-%	'density', struct( ...
-%		'fa', nan(length(FILES), 1), ...
-%		'svd', nan(length(FILES), 1)))};
-
-% preallocate space for density-of-empirical-networks matrix before loop for time reasons
-rcDensity = cell(1, length(subjIDs));
-rcDensity(:) = {struct( ...
-	'id', nan(1, 1), ...
-    'fa', nan(1, length(FILES)), ...
-    'svd', nan(1, length(FILES)))};
+	'density', struct( ...
+		'fa', nan(length(FILES), 1), ...
+		'svd', nan(length(FILES), 1)))};
 
 %% Main process 
 
@@ -75,8 +66,8 @@ parpool('local', N_PARALLEL_WORKERS);
 % loop over subject IDs and execute compute_correct_assemble_rc_dti function in parallel
 parfor iSubj = 1:length(subjIDs)
     tic
-    [rcResults{iSubj}, rcDensity{iSubj}] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, str2num(subjIDs{iSubj}), N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-        FILES, rcResults{iSubj}, rcDensity{iSubj}, TIV_LINE_NUMBER, SEED, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO);
+    rcResults{iSubj} = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, str2num(subjIDs{iSubj}), N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+        FILES, rcResults{iSubj}, TIV_LINE_NUMBER, SEED, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO);
     toc
 end
 delete(gcp('nocreate'));
@@ -84,13 +75,9 @@ savefile=RESULTS_DESTINATION
 rcResultsTEST = rcResults;
 save(savefile, 'rcResultsTEST');
 
-savefile=DENSITY_DESTINATION
-rcDensityTEST = rcDensity;
-save(savefile, 'rcDensityTEST');
-
 %% subfunction
-function [rcResults, rcDensity] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-    FILES, rcResults, rcDensity, TIV_LINE_NUMBER, SEED, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO)
+function rcResults = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+    FILES, rcResults, TIV_LINE_NUMBER, SEED, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO)
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
@@ -103,11 +90,8 @@ function [rcResults, rcDensity] = compute_correct_assemble_rc_dti(PATH_TO_SUBJEC
             rc{iFile}.svd.emp=rich_club_wu(file.connectivity(:,:,13));
             
             % calculate densities
-			rcDensity.id = subjID;
-            [rcDensity.fa(iFile), ~, ~] = density_und(file.connectivity(:,:,3));
-            [rcDensity.svd(iFile), ~, ~] = density_und(file.connectivity(:,:,13));
-%            rcResults.density.fa(iFile)=density_und(file.connectivity(:,:,3));
-%            rcResults.density.svd(iFile)=density_und(file.connectivity(:,:,13));
+			[rcResults.density.fa(iFile), ~, ~] = density_und(file.connectivity(:,:,3));
+            [rcResults.density.svd(iFile), ~, ~] = density_und(file.connectivity(:,:,13));
             
             % preallocate (size not known beforehand [before executing rich_club_wu])
             rc{iFile}.fa.rand=zeros(length(rc{iFile}.fa.emp), N_RANDOM_NETWORKS);
@@ -166,8 +150,8 @@ function [rcResults, rcDensity] = compute_correct_assemble_rc_dti(PATH_TO_SUBJEC
 			  
               
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(isOutlierInRcRange);
-                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 0;
-                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  0;
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = false;
+                rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  false;
                     
                 if sum(isOutlierInRcRange) > 1 % if there's more than 1 outlier
                   
@@ -196,18 +180,18 @@ function [rcResults, rcDensity] = compute_correct_assemble_rc_dti(PATH_TO_SUBJEC
 						    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range= [ ...
                                 (max(rcIndexes) - nRcEntriesAfterLastOutlier + 1) max(rcIndexes)];
                         end
-					    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = 1;
+					    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = true;
 					  
 					    % If there is only two outliers they are ignored 
                     elseif sum(isOutlierInRcRange) == 2 
-                        rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  1;
+                        rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Ignored =  true;
 					  
                     % If range of p-vals above .05 is not continous, exclude subjects from analysis
                     else
                         rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
                     end
 				elseif sum(isOutlierInRcRange) == 1
-                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers(2) = 1;
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers(2) = true;
                 end
               
                 %% assemble relevant metrics
