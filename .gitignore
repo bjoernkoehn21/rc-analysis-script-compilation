@@ -1,0 +1,2 @@
+# ignore precompiled and optimized MATLAB code for standalone applications
+*.asv
