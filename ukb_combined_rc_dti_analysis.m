@@ -1,4 +1,5 @@
 %% Last step Changes
+% change back to parfor and parallel pooling
 % change number of random networks and parallel workers 2 blocks below to higher number
 
 %% Preamble
@@ -23,14 +24,15 @@ PATH_TO_FREESURFER_DIR = '';
 
 % define constants
 N_PARALLEL_WORKERS = 100;
-N_RANDOM_NETWORKS = 2500;
+N_RANDOM_NETWORKS = 500;%2500;
 EDGE_WEIGHTS = {'fa' 'svd'}; % fractional anisotropy, streamline volume density
-FILES={'*_connectivity_csd_dti_aparc.mat'
-'*_connectivity_csd_dti_lausanne120.mat'
-'*_connectivity_csd_dti_lausanne250.mat'
-'*_connectivity_gqi_dti_aparc.mat'
-'*_connectivity_gqi_dti_lausanne120.mat'
-'*_connectivity_gqi_dti_lausanne250.mat'};
+% FILES = {'*_connectivity_csd_dti_aparc.mat'
+% '*_connectivity_csd_dti_lausanne120.mat'
+% '*_connectivity_csd_dti_lausanne250.mat'
+% '*_connectivity_gqi_dti_aparc.mat'
+% '*_connectivity_gqi_dti_lausanne120.mat'
+% '*_connectivity_gqi_dti_lausanne250.mat'};
+FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
 RC_DOMINION_RATIO = 1.5;
 SIGNIFICANCE_LEVEL = 0.5;
 
@@ -52,23 +54,22 @@ rcResults(:) = {struct( ...
         'emp', nan(length(FILES), length(EDGE_WEIGHTS)), ...
         'rand', nan(length(FILES), length(EDGE_WEIGHTS)), ...
         'above', nan(length(FILES), length(EDGE_WEIGHTS))), ...
-    'odd', nan(4, length(FILES), length(EDGE_WEIGHTS)), ...
-	'density', cell2struct( ...
-		repmat({nan(length(FILES), 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1)};
+    'odd', nan(4, length(FILES), length(EDGE_WEIGHTS)))};
 
 %% Main process 
 
 % Start parallel pool
-UKB_Cluster = parcluster('local');
-UKB_Cluster.NumWorkers = N_PARALLEL_WORKERS;
-saveProfile(UKB_Cluster);
-parpool('local', N_PARALLEL_WORKERS);
+% UKB_Cluster = parcluster('local');
+% UKB_Cluster.NumWorkers = N_PARALLEL_WORKERS;
+% saveProfile(UKB_Cluster);
+% parpool('local', N_PARALLEL_WORKERS);
 
 % loop over subject IDs and execute compute_correct_assemble_rc_dti function in parallel
-parfor iSubj = 1:length(subjIDs)
+%parfor iSubj = 1:length(subjIDs)
+for iSubj = 1:length(subjIDs)
     tic
-    rcResults{iSubj} = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, str2double(subjIDs{iSubj}), N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-        FILES, rcResults{iSubj}, TIV_LINE_NUMBER, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO);
+    rcResults{iSubj} = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PATH_TO_FREESURFER_DIR, str2double(subjIDs{iSubj}), N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+        FILES, rcResults{iSubj}, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO);
     toc
 end
 delete(gcp('nocreate'));
@@ -76,8 +77,8 @@ savefile = RESULTS_DESTINATION;
 save(savefile, 'rcResults');
 
 %% subfunction
-function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-    FILES, rcResults, TIV_LINE_NUMBER, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO)
+function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PATH_TO_FREESURFER_DIR, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
+    FILES, rcResults, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO)
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
@@ -87,6 +88,14 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
             'svd', nan(length(FILES), 1), ...
         'tiv', nan(1,1), ...
         'meanFa', nan(1,1)));
+
+    covariates = struct(...
+        'density', cell2struct( ...
+            repmat({nan(length(FILES), 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1), ...
+        'tiv', nan(1,1), ...
+        'meanFa', nan(1,1));
+    
+
     
     for iFile = 1:length(FILES)
         try
@@ -107,7 +116,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
 			% produce random networks for normalization
 			for iRandomNetwork = 1:N_RANDOM_NETWORKS
 				if rem(iRandomNetwork,500) == 0
-					fprintf('subject %d, file %d, network number %d\n' , ...
+					fprintf('subject %d, file %d, random network number %d\n' , ...
 						subjID, iFile, iRandomNetwork)
 				end
 				rc{iFile}.fa.rand(:,iRandomNetwork) = rich_club_wu( ...
@@ -145,6 +154,9 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
     
                 rcIndexes = find(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p < SIGNIFICANCE_LEVEL);
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [min(rcIndexes) max(rcIndexes)];
+				if isempty(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range)
+					rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range = [NaN NaN];
+				end
               
                 % identify values with p>=0.05 within range
                 rcRangePvalues = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).adj_p( ...
@@ -229,8 +241,9 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
                     EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected;
                 rcResults.odd(3,iFile,iEdgeWeight) = rc{iFile}.( ...
                     EDGE_WEIGHTS{iEdgeWeight}).Ignored;
-                rcResults.odd(4,iFile,iEdgeWeight) = rc{iFile}.(edge{iEdge}).range(2) - ...
-                    rc{iFile}.(edge{iEdge}).range(1);
+                rcResults.odd(4,iFile,iEdgeWeight) = ...
+					rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range(2) - ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range(1);
             end
         catch ME
             fprintf('\t Error in line %d in function %s: %s\n', ...
@@ -247,7 +260,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
 	    ME.stack(1).line, ME.stack(1).name, ME.message);
     end
 
-	%% read total intracranial volume from line (TIV_LINE_NUMBER-1) from FreeSurfer file 'aseg.stats'
+	%% read total intracranial volume from FreeSurfer file 'aseg.stats'
       
     if isempty(PATH_TO_FREESURFER_DIR)
         pathToTiv = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), '**', 'aseg.stats');
@@ -257,38 +270,48 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
 
     fileList = dir(pathToTiv);
     pathToTiv = fullfile(fileList(1).folder, fileList(1).name);
-    asegStatsFileFound = true;
-    if isempty(fileList)  
+	isFoundOnce = numel(fileList) == 1;
+	isFoundMultipleTimes = numel(fileList) > 1;
+	isZipped = false;
+	if isFoundOnce
+		flagAsegStatsFileFound = true;
+	elseif isFoundMultipleTimes
+        flagAsegStatsFileFound = false;
+        fprintf('Error: Multiple files "aseg.stats" found at %s', pathToTiv);
+	else
         try
             system(['unzip -qq *zip ', PATH_TO_FREESURFER_DIR, '/stats/aseg.stats']);
             pathToTiv = fullfile(PATH_TO_FREESURFER_DIR, '/stats/aseg.stats');
+			flagAsegStatsFileFound = true;
+			isZipped = true;
         catch ME
             fprintf(['Error unzipping file at ', PATH_TO_FREESURFER_DIR, ...
-                '/stats/aseg.stats. Please check the validity of PATH_TO_FREESURFER_DIR', ': Error in line %d in function %s: %s\n'], ...
+                '/stats/aseg.stats. Please check the validity of PATH_TO_FREESURFER_DIR', ...
+				': Error in line %d in function %s: %s\n'], ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
-        disp('File "aseg.stats" not found in subject dirctory ', pathToTiv, ...
-            '\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/stats/aseg.stats', ...
-            '\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
-            ' or set FLAG_CALCULATE_COVARIATES to false.');
+			fprintf('File "aseg.stats" not found in subject dirctory %s', pathToTiv, ...
+				'\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/stats/aseg.stats', ...
+				'\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
+				' or set FLAG_CALCULATE_COVARIATES to false.');
         end
-    else
-        asegStatsFileFound = false;
-        disp('Error: Multiple files "aseg.stats" found in subject directory ', pathToTiv);        
     end
 
 
-    if asegStatsFileFound
+    if flagAsegStatsFileFound
         fid = fopen(pathToTiv);
         tline = '';
         while ischar(tline)
             tline = fgetl(fid);
             if contains(tline, 'EstimatedTotalIntraCranialVol')
-                tiv = regexp(tline, '\d+\.?\d*', 'match');
-                covariats.tiv = strrep(tiv, ',', '');
+                tiv = regexp(tline, '\d+\.\d+', 'match');
+                covariates.tiv = str2num(tiv{1});
                 break;
             end
         end
         fclose(fid);
+		if isZipped
+			rmdir('FreeSurfer', 's'); % Remove the FreeSurfer directory and files
+		end
     end
   
 		
@@ -301,27 +324,33 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
 
     fileList = dir(pathToFa);
     pathToFa = fullfile(fileList(1).folder, fileList(1).name);
-    aparcAsegMgzFileFound = true;
-    if isempty(fileList)  
+	isFoundOnce = numel(fileList) == 1;
+	isFoundMultipleTimes = numel(fileList) > 1;
+	if isFoundOnce
+		flagAparcAsegMgzFileFound = true;
+    elseif isFoundMultipleTimes
+        flagAparcAsegMgzFileFound = false;
+        fprintf('Error: Multiple files "aparc+aseg.mgz" found in subject directory %s', pathToFa);
+    else  
         try
             system(['unzip -qq *zip ', PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz']);
             pathToFa = fullfile(PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz');
+			flagAparcAsegMgzFileFound = true;
+			isZipped = true;
         catch ME
             fprintf(['Error unzipping file at ', PATH_TO_FREESURFER_DIR, ...
                 '/stats/aseg.stats. Please check the validity of PATH_TO_FREESURFER_DIR', ': Error in line %d in function %s: %s\n'], ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
-        disp('File "aseg.stats" not found in subject dirctory ', pathToFa, ...
-            '\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz', ...
-            '\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
-            ' or set FLAG_CALCULATE_COVARIATES to false.');
+			fprintf('File "aseg.stats" not found in subject dirctory ', pathToFa, ...
+				'\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz', ...
+				'\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
+				' or set FLAG_CALCULATE_COVARIATES to false.');
         end
-    else
-        aparcAsegMgzFileFound = false;
-        disp('Error: Multiple files "aparc+aseg.mgz" found in subject directory ', pathToFa);        
+        
     end
 
 
-    if aparcAsegMgzFileFound
+    if flagAparcAsegMgzFileFound
         try
             system(['mri_binarize --i ', pathToFa, ' --wm --o wm.mask.mgz']);
 
@@ -330,18 +359,18 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, sub
                 '/*_fractional_anisotropy.nii.gz wm.mask.mgz wm.nii.gz']);
 
             % Compute mean FA within wm.nii.gz mask and save as meanfa.txt
-            [~, covariates.meanFa] = system(['fslmeants -i ' resultsDir ...
-                '/*_fractional_anisotropy.nii.gz -m wm.nii.gz -o -']); % [status, output]
-
-            % Remove the FreeSurfer directory and files
-            rmdir('FreeSurfer', 's');
-            delete('wm*');
+            [~, meanFa] = system(['fslmeants -i ' resultsDir ...
+                '/*_fractional_anisotropy.nii.gz -m wm.nii.gz']); % [status, output]
+			covariates.meanFa = str2num(meanFa);
+			if isZipped
+				rmdir('FreeSurfer', 's'); % Remove the FreeSurfer directory and files
+			end
+			delete('wm*');
         catch ME
             fprintf('\t Error in line %d in function %s: %s\n', ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
         end
     end
-    
-    savefile = [PATH_TO_SUBJECT_DIRS, num2str(subjID), 'covariates.mat'];
-	save(savefile, 'covariates')
+    savefile = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'covariates.mat')
+	save(savefile, 'covariates');
 end
