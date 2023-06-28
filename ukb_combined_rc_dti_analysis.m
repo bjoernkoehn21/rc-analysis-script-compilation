@@ -11,28 +11,30 @@ setenv('FREESURFER_HOME', '/opt/freesurfer');
 system(fullfile(getenv('FREESURFER_HOME'), 'SetUpFreeSurfer.sh'));
 
 % define destination of results and other relevant paths and file names
-SUBJECTS_ID_FILE = 'subjIDs.txt';
-% PATH_TO_SUBJECT_DIRS = '/slow/projects/01_UKB/dti/00_batch1';
-% RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
-% 	datestr(now, 'yyyymmdd'), '.mat'];
-PATH_TO_SUBJECT_DIRS = '/slow/projects/HCP_1200/01_complete_batch';
-RESULTS_DESTINATION = ['/slow/projects/HCP_1200/rc_results_', ...
+SUBJECTS_ID_FILE = 'ukb_subjIDs.txt';
+PATH_TO_SUBJECT_DIRS = '/slow/projects/01_UKB/dti/00_batch1';
+RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
 	datestr(now, 'yyyymmdd'), '.mat'];
+% SUBJECTS_ID_FILE = 'hcp_subjIDs.txt';
+% PATH_TO_SUBJECT_DIRS = '/slow/projects/HCP_1200/01_complete_batch';
+% RESULTS_DESTINATION = ['/slow/projects/HCP_1200/rc_results_', ...
+% 	datestr(now, 'yyyymmdd'), '.mat'];
 % Define PATH_TO_ZIPPED_FREESURFER_FILES if files "aseg.stats" and "aparc+aseg.mgz" exist in
 % zipped form or outside the PATH_TO_SUBJECT_DIRS path
-PATH_TO_FREESURFER_DIR = '';  
+PATH_TO_FREESURFER_DIR = '/slow/projects/01_UKB/surface/00_batch1';
+%PATH_TO_FREESURFER_DIR = '';  
 
 % define constants
 N_PARALLEL_WORKERS = 100;
-N_RANDOM_NETWORKS = 500;%2500;
+N_RANDOM_NETWORKS = 2500;
 EDGE_WEIGHTS = {'fa' 'svd'}; % fractional anisotropy, streamline volume density
-% FILES = {'*_connectivity_csd_dti_aparc.mat'
-% '*_connectivity_csd_dti_lausanne120.mat'
-% '*_connectivity_csd_dti_lausanne250.mat'
-% '*_connectivity_gqi_dti_aparc.mat'
-% '*_connectivity_gqi_dti_lausanne120.mat'
-% '*_connectivity_gqi_dti_lausanne250.mat'};
-FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
+FILES = {'*_connectivity_csd_dti_aparc.mat'
+'*_connectivity_csd_dti_lausanne120.mat'
+'*_connectivity_csd_dti_lausanne250.mat'
+'*_connectivity_gqi_dti_aparc.mat'
+'*_connectivity_gqi_dti_lausanne120.mat'
+'*_connectivity_gqi_dti_lausanne250.mat'};
+%FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
 RC_DOMINION_RATIO = 1.5;
 SIGNIFICANCE_LEVEL = 0.5;
 
@@ -82,13 +84,6 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
-    covariates = struct(...
-        'density', struct( ...
-            'fa', nan(length(FILES), 1), ...
-            'svd', nan(length(FILES), 1), ...
-        'tiv', nan(1,1), ...
-        'meanFa', nan(1,1)));
-
     covariates = struct(...
         'density', cell2struct( ...
             repmat({nan(length(FILES), 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1), ...
@@ -253,11 +248,11 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
 
 
     try
-	savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '.mat']; %% This matrix should be saved in DWI_processed_v311. But currently the access rights prohibit this.
-	save(savefile,'rc')
+        savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '.mat']; %% This matrix should be saved in DWI_processed_v311. But currently the access rights prohibit this.
+        save(savefile,'rc')
     catch ME
-	fprintf('\t Error in line %d in function %s: %s\n', ...
-	    ME.stack(1).line, ME.stack(1).name, ME.message);
+        fprintf('\t Error in line %d in function %s: %s\n', ...
+            ME.stack(1).line, ME.stack(1).name, ME.message);
     end
 
 	%% read total intracranial volume from FreeSurfer file 'aseg.stats'
@@ -269,28 +264,31 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
     end
 
     fileList = dir(pathToTiv);
-    pathToTiv = fullfile(fileList(1).folder, fileList(1).name);
 	isFoundOnce = numel(fileList) == 1;
 	isFoundMultipleTimes = numel(fileList) > 1;
 	isZipped = false;
-	if isFoundOnce
+	flagAsegStatsFileFound = false;
+    if isFoundOnce
 		flagAsegStatsFileFound = true;
+		pathToTiv = fullfile(fileList(1).folder, fileList(1).name);
 	elseif isFoundMultipleTimes
-        flagAsegStatsFileFound = false;
         fprintf('Error: Multiple files "aseg.stats" found at %s', pathToTiv);
 	else
         try
-            system(['unzip -qq *zip ', PATH_TO_FREESURFER_DIR, '/stats/aseg.stats']);
-            pathToTiv = fullfile(PATH_TO_FREESURFER_DIR, '/stats/aseg.stats');
+			pathToZip = [PATH_TO_FREESURFER_DIR, '/', num2str(subjID)];
+			pathToTiv = fullfile(PATH_TO_FREESURFER_DIR, num2str(subjID), 'FreeSurfer/stats/aseg.stats');
+			cd(pathToZip);
+			system('unzip -qq *zip FreeSurfer/stats/aseg.stats')
+			
 			flagAsegStatsFileFound = true;
 			isZipped = true;
         catch ME
-            fprintf(['Error unzipping file at ', PATH_TO_FREESURFER_DIR, ...
+            fprintf(['Error unzipping file at ', pathToZip, ...
                 '/stats/aseg.stats. Please check the validity of PATH_TO_FREESURFER_DIR', ...
 				': Error in line %d in function %s: %s\n'], ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
-			fprintf('File "aseg.stats" not found in subject dirctory %s', pathToTiv, ...
-				'\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/stats/aseg.stats', ...
+			fprintf('File "aseg.stats" not found in subject dirctory %s', pathToZip, ...
+				'\n Nor was it found at ', pathToZip, 'FreeSurfer/stats/aseg.stats', ...
 				'\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
 				' or set FLAG_CALCULATE_COVARIATES to false.');
         end
@@ -304,7 +302,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
             tline = fgetl(fid);
             if contains(tline, 'EstimatedTotalIntraCranialVol')
                 tiv = regexp(tline, '\d+\.\d+', 'match');
-                covariates.tiv = str2num(tiv{1});
+                covariates.tiv = str2double(tiv{1});
                 break;
             end
         end
@@ -323,26 +321,32 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
     end
 
     fileList = dir(pathToFa);
-    pathToFa = fullfile(fileList(1).folder, fileList(1).name);
 	isFoundOnce = numel(fileList) == 1;
 	isFoundMultipleTimes = numel(fileList) > 1;
-	if isFoundOnce
+	flagAparcAsegMgzFileFound = false;
+    if isFoundOnce
 		flagAparcAsegMgzFileFound = true;
+		pathToFa = fullfile(fileList(1).folder, fileList(1).name);
     elseif isFoundMultipleTimes
-        flagAparcAsegMgzFileFound = false;
-        fprintf('Error: Multiple files "aparc+aseg.mgz" found in subject directory %s', pathToFa);
+        fprintf('Error: Multiple files "aparc+aseg.mgz" found in subject directory %s\n', pathToFa);
     else  
-        try
-            system(['unzip -qq *zip ', PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz']);
-            pathToFa = fullfile(PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz');
+        try            
+            %pathToZip = [PATH_TO_FREESURFER_DIR, '/', num2str(subjID)];
+            %system(['unzip -qq ', pathToZip, '/*.zip /FreeSurfer/mri/aparc+aseg.mgz -d ', pathToZip, '/FreeSurfer/mri/aparc+aseg.mgz']);
+            
+			pathToZip = [PATH_TO_FREESURFER_DIR, '/', num2str(subjID)];
+			pathToFa = fullfile(PATH_TO_FREESURFER_DIR, num2str(subjID), 'FreeSurfer/mri/aparc+aseg.mgz');
+			cd(pathToZip);
+			system('unzip -qq *zip FreeSurfer/mri/aparc+aseg.mgz')
+			
 			flagAparcAsegMgzFileFound = true;
 			isZipped = true;
         catch ME
-            fprintf(['Error unzipping file at ', PATH_TO_FREESURFER_DIR, ...
+            fprintf(['Error unzipping file at ', pathToZip, ...
                 '/stats/aseg.stats. Please check the validity of PATH_TO_FREESURFER_DIR', ': Error in line %d in function %s: %s\n'], ...
                 ME.stack(1).line, ME.stack(1).name, ME.message);
 			fprintf('File "aseg.stats" not found in subject dirctory ', pathToFa, ...
-				'\n Nor was it found at ', PATH_TO_FREESURFER_DIR, '/mri/aparc+aseg.mgz', ...
+				'\n Nor was it found at ', pathToZip, 'FreeSurfer/mri/aparc+aseg.mgz', ...
 				'\n in zipped form. Please correct variable PATH_TO_FREESURFER_DIR', ...
 				' or set FLAG_CALCULATE_COVARIATES to false.');
         end
@@ -355,13 +359,13 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
             system(['mri_binarize --i ', pathToFa, ' --wm --o wm.mask.mgz']);
 
             % Convert wm.mask.mgz to wm.nii.gz using nearest-neighbor interpolation
-            system(['/opt/freesurfer/bin/mri_convert -rt nearest -rl ' resultsDir...
+            system(['/opt/freesurfer/bin/mri_convert -rt nearest -rl ', resultsDir, ...
                 '/*_fractional_anisotropy.nii.gz wm.mask.mgz wm.nii.gz']);
 
             % Compute mean FA within wm.nii.gz mask and save as meanfa.txt
             [~, meanFa] = system(['fslmeants -i ' resultsDir ...
                 '/*_fractional_anisotropy.nii.gz -m wm.nii.gz']); % [status, output]
-			covariates.meanFa = str2num(meanFa);
+			covariates.meanFa = str2double(meanFa);
 			if isZipped
 				rmdir('FreeSurfer', 's'); % Remove the FreeSurfer directory and files
 			end
