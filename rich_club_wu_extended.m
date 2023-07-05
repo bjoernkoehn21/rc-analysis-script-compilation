@@ -1,4 +1,4 @@
-function   [Rw, Rw_numerator, Rw_denominator, Er] = rich_club_wu_extended(CIJ,varargin)
+function   [Rw, Rw_numerator, Rw_denominator] = rich_club_wu_extended(CIJ,varargin)
 %RICH_CLUB_WU 	Rich club coefficients curve (weighted undirected graph)
 %
 %   Rw = rich_club_wu(CIJ,varargin) % rich club curve for weighted graph
@@ -50,7 +50,7 @@ for kk = 1:klevel
     SmallNodes=find(NodeDegree<kk);
     
     if isempty(SmallNodes)
-        [Rw(kk), Rw_numerator(kk), Rw_denominator(kk), Er(kk)] = deal(NaN);             %#ok<*AGROW>
+        [Rw(kk), Rw_numerator(kk), Rw_denominator(kk)] = deal(NaN);             %#ok<*AGROW>
         continue
     end
     
@@ -63,16 +63,16 @@ for kk = 1:klevel
     Rw_numerator(kk) = sum(CutoutCIJ(:));
     
     %total number of connections in subset E>r
-    Er(kk) = length(find(CutoutCIJ~=0)); % sum((CutoutCIJ~=0),[1,2]) would be faster?
+%     Er(kk) = length(find(CutoutCIJ~=0)); % sum((CutoutCIJ~=0),[1,2]) would be faster?
 %     fprintf('%d\t', length(find(CutoutCIJ~=0)))
 %     if ~mod(kk, 10)
 %         fprintf('\n')
 %     end
-    %Er = length(find(CutoutCIJ~=0));
+    Er = length(find(CutoutCIJ~=0));
     
     %E>r number of connections with max weight in network
-    wrank_r = wrank(1:1:Er(kk));
-    %wrank_r = wrank(1:1:Er);
+%     wrank_r = wrank(1:1:Er(kk));
+    wrank_r = wrank(1:1:Er);
     Rw_denominator(kk) = sum(wrank_r);
     
     %weighted rich-club coefficient
