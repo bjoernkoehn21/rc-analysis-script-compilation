@@ -27,15 +27,15 @@ flagCalculateCovariates = false;
 
 % define constants
 N_PARALLEL_WORKERS = 100;
-N_RANDOM_NETWORKS = 500; %2500;
+N_RANDOM_NETWORKS = 2500;
 EDGE_WEIGHTS = {'fa' 'svd'}; % fractional anisotropy, streamline volume density
-% FILES = {'*_connectivity_csd_dti_aparc.mat'
-% '*_connectivity_csd_dti_lausanne120.mat'
-% '*_connectivity_csd_dti_lausanne250.mat'
-% '*_connectivity_gqi_dti_aparc.mat'
-% '*_connectivity_gqi_dti_lausanne120.mat'
-% '*_connectivity_gqi_dti_lausanne250.mat'};
-FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
+FILES = {'*_connectivity_csd_dti_aparc.mat'
+'*_connectivity_csd_dti_lausanne120.mat'
+'*_connectivity_csd_dti_lausanne250.mat'
+'*_connectivity_gqi_dti_aparc.mat'
+'*_connectivity_gqi_dti_lausanne120.mat'
+'*_connectivity_gqi_dti_lausanne250.mat'};
+%FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
 RC_DOMINION_RATIO = 1.5;
 SIGNIFICANCE_LEVEL = 0.5;
 
@@ -52,6 +52,8 @@ rcResults(:) = {struct( ...
     'max_phi', nan(length(FILES), length(EDGE_WEIGHTS)), ...
     'max_k', nan(length(FILES), length(EDGE_WEIGHTS)), ...
     'range', nan(2, length(FILES), length(EDGE_WEIGHTS)), ...
+	'max_phi_numerator', nan(length(FILES), length(EDGE_WEIGHTS)), ...
+	'max_phi_denominator', nan(length(FILES), length(EDGE_WEIGHTS)), ...
     'integral', struct( ...
         'norm', nan(length(FILES), length(EDGE_WEIGHTS)), ...
         'emp', nan(length(FILES), length(EDGE_WEIGHTS)), ...
@@ -97,27 +99,52 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
         try
 			file = load(dir(FILES{iFile}).name); % load iFile
             
+%             rc = cell(length(FILES), 1);
+%             subfields = {'emp', 'svd', 'rand'};
+%             subsubfields = {'phi', 'phiNum', 'phiDenom'};
+%             rc(:) = {cell2struct(repmat({cell2struct(repmat({cell2struct(repmat({nan(1, 1)}, length(subsubfields), 1), ...
+%         subsubfields, 1)}, length(subfields), 1), subfields, 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1)};
+
             rc = cell(length(FILES), 1);
             subfields = {'emp', 'svd', 'rand'};
-            subsubfields = {'phi', 'phiNum', 'phiDenom'};
+            subsubfields = {'phi', 'phiNum', 'phiDenom', 'Er'};
             rc(:) = {cell2struct(repmat({cell2struct(repmat({cell2struct(repmat({nan(1, 1)}, length(subsubfields), 1), ...
         subsubfields, 1)}, length(subfields), 1), subfields, 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1)};
             
+    
+    
+            rcTest = rc;
+            [rcTest{iFile}.fa.emp.phi] = ...
+                rich_club_wu(file.connectivity(:,:,3));
+                
+            [rcTest{iFile}.svd.emp.phi] = ...
+                rich_club_wu(file.connectivity(:,:,13));
+            
             % calculate rc coefficients for empirical network
-            [rc{iFile}.fa.emp.phi, rc{iFile}.fa.emp.phiNum, rc{iFile}.fa.emp.phiDenom] = ...
+%             [rc{iFile}.fa.emp.phi, rc{iFile}.fa.emp.phiNum, rc{iFile}.fa.emp.phiDenom] = ...
+%                 rich_club_wu_extended(file.connectivity(:,:,3));
+%                 
+%             [rc{iFile}.svd.emp.phi, rc{iFile}.svd.emp.phiNum, rc{iFile}.svd.emp.phiDenom] = ...
+%                 rich_club_wu_extended(file.connectivity(:,:,13));
+            
+
+			
+			[rc{iFile}.fa.emp.phi, rc{iFile}.fa.emp.phiNum, rc{iFile}.fa.emp.phiDenom, rc{iFile}.fa.emp.Er] = ...
                 rich_club_wu_extended(file.connectivity(:,:,3));
                 
-            [rc{iFile}.svd.emp.phi, rc{iFile}.svd.emp.phiNum, rc{iFile}.svd.emp.phiDenom] = ...
+            [rc{iFile}.svd.emp.phi, rc{iFile}.svd.emp.phiNum, rc{iFile}.svd.emp.phiDenom, rc{iFile}.svd.emp.Er] = ...
                 rich_club_wu_extended(file.connectivity(:,:,13));
+            
+				
             
             % calculate densities
 			[covariats.density.fa(iFile), ~, ~] = density_und(file.connectivity(:,:,3));
             [covariats.density.svd(iFile), ~, ~] = density_und(file.connectivity(:,:,13));
             
             % preallocate (size not known beforehand [before executing rich_club_wu])
-            [rc{iFile}.fa.rand.phi, rc{iFile}.fa.rand.phiNum, rc{iFile}.fa.rand.phiDenom] = ...
+            [rc{iFile}.fa.rand.phi, rc{iFile}.fa.rand.phiNum, rc{iFile}.fa.rand.phiDenom, rc{iFile}.fa.rand.Er] = ...
                 deal(nan(length(rc{iFile}.fa.emp.phi), N_RANDOM_NETWORKS));
-            [rc{iFile}.svd.rand.phi, rc{iFile}.svd.rand.phiNum, rc{iFile}.svd.rand.phiDenom] = ...
+            [rc{iFile}.svd.rand.phi, rc{iFile}.svd.rand.phiNum, rc{iFile}.svd.rand.phiDenom, rc{iFile}.svd.rand.Er] = ...
                 deal(nan(length(rc{iFile}.svd.emp.phi), N_RANDOM_NETWORKS));
 			
 			% produce random networks for normalization
@@ -126,22 +153,58 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
 					fprintf('subject %d, file %d, random network number %d\n' , ...
 						subjID, iFile, iRandomNetwork)
                 end
-                [rc{iFile}.fa.rand.phi(:,iRandomNetwork), ...
+%                 [rc{iFile}.fa.rand.phi(:,iRandomNetwork), ...
+%                     rc{iFile}.fa.rand.phiNum(:,iRandomNetwork), ...
+%                     rc{iFile}.fa.rand.phiDenom(:,iRandomNetwork)] = ...
+%                     rich_club_wu_extended(randmio_und(file.connectivity(:,:,3),10), ...
+%                     length(rc{iFile}.fa.emp.phi));
+%                 [rc{iFile}.svd.rand.phi(:,iRandomNetwork), ...
+%                     rc{iFile}.svd.rand.phiNum(:,iRandomNetwork), ...
+%                     rc{iFile}.svd.rand.phiDenom(:,iRandomNetwork)] = ...
+%                     rich_club_wu_extended(randmio_und(file.connectivity(:,:,13),10), ...
+%                     length(rc{iFile}.svd.emp.phi));
+				
+				[rc{iFile}.fa.rand.phi(:,iRandomNetwork), ...
                     rc{iFile}.fa.rand.phiNum(:,iRandomNetwork), ...
-                    rc{iFile}.fa.rand.phiDenom(:,iRandomNetwork)] = ...
-                    rich_club_wu_extended(randmio_und(file.connectivity(:,:,3),10), ...
+                    rc{iFile}.fa.rand.phiDenom(:,iRandomNetwork), rc{iFile}.fa.rand.Er(:,iRandomNetwork)] = ...
+                    rich_club_wu_extended(randmio_und(file.connectivity(:,:,3), 10), ...
                     length(rc{iFile}.fa.emp.phi));
+				%disp(rc{iFile}.fa.rand.Er(:,iRandomNetwork)')
                 [rc{iFile}.svd.rand.phi(:,iRandomNetwork), ...
                     rc{iFile}.svd.rand.phiNum(:,iRandomNetwork), ...
-                    rc{iFile}.svd.rand.phiDenom(:,iRandomNetwork)] = ...
-                    rich_club_wu_extended(randmio_und(file.connectivity(:,:,13),10), ...
+                    rc{iFile}.svd.rand.phiDenom(:,iRandomNetwork), rc{iFile}.svd.rand.Er(:,iRandomNetwork)] = ...
+                    rich_club_wu_extended(randmio_und(file.connectivity(:,:,13), 10), ...
                     length(rc{iFile}.svd.emp.phi));
-                
+				
 % 				rc{iFile}.fa.rand(:,iRandomNetwork) = rich_club_wu( ...
 % 					randmio_und(file.connectivity(:,:,3),10),length(rc{iFile}.fa.emp));
 % 				rc{iFile}.svd.rand(:,iRandomNetwork) = rich_club_wu( ...
 % 					randmio_und(file.connectivity(:,:,13),10),length(rc{iFile}.svd.emp));
 			end
+			%fprintf('all row elements are equal: %d\n', isequaln(rc{iFile}.svd.rand.phiDenom(1, :), rc{iFile}.svd.rand.phiDenom(1, 1)))
+			%fprintf('row elements: %f\n', rc{iFile}.svd.rand.phiDenom(15, 1:10))
+			%fprintf('number of connections: %d\n',  rc{iFile}.svd.rand.Er(15, 1:10))
+			
+			
+			
+			
+% 			%disp(rcTest{iFile}.fa.emp.phi)
+% 			%disp(rc{iFile}.fa.emp.phi)
+%             %fprintf('emp is equal: %d\n', isequaln(rcTest{iFile}.fa.emp.phi, rc{iFile}.fa.emp.phi));
+% 			%fprintf('size emp: %f\n', size(rc{iFile}.fa.emp.phiDenom))
+% 			disp(size(rc{iFile}.fa.emp.phiDenom))
+% 			%disp((rc{iFile}.fa.emp.phiDenom))
+% 			disp(size(rc{iFile}.fa.emp.Er))
+%             disp((rc{iFile}.fa.emp.Er))
+% 			%fprintf('emp denom: %f\n', rc{iFile}.fa.emp.phiDenom);
+% 			%fprintf('size rand: %f\n', size(rc{iFile}.fa.rand.phiDenom))
+% 			disp(size(rc{iFile}.fa.rand.phiDenom))
+% 			%disp((rc{iFile}.fa.rand.phiDenom(:,1)'))
+% 			disp(size(rc{iFile}.fa.rand.Er(:,1)'))
+%             disp((rc{iFile}.fa.rand.Er(:,1)'))
+% 			disp((rc{iFile}.fa.rand.Er(:,2)'))
+% 			%fprintf('denom is equal: %d\n', isequaln(rc{iFile}.fa.emp.phiDenom, rc{iFile}.fa.rand.phiDenom(:,1)'));
+% 			%fprintf('rand first denom: %f\n', rc{iFile}.fa.rand.phiDenom(:,1));
         
 			% normalize
 			rc{iFile}.fa.norm = rc{iFile}.fa.emp.phi./mean(rc{iFile}.fa.rand.phi,2)';
@@ -162,8 +225,8 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
             for iEdgeWeight = 1:length(EDGE_WEIGHTS)
 			
                 % phi max and corresponding k  
-                [rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(1,1), ...
-                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(1,2)] = max( ...
+                [rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(1), ...
+                    rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).kmax(2)] = max( ...
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm) ;
                 
                 % fdr-correction of p-values (adjusted p-values)
@@ -236,6 +299,95 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
                     EDGE_WEIGHTS{iEdgeWeight}).kmax(2);
                 rcResults.range(:,iFile,iEdgeWeight) = rc{iFile}.( ...
                     EDGE_WEIGHTS{iEdgeWeight}).range;
+					
+                rcResults.max_phi_numerator(iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).emp.phiNum(rcResults.max_k(iFile,iEdgeWeight));
+                rcResults.max_phi_denominator(iFile,iEdgeWeight) = rc{iFile}.( ...
+                    EDGE_WEIGHTS{iEdgeWeight}).emp.phiDenom(rcResults.max_k(iFile,iEdgeWeight));
+				%fprintf('emp by hand: %f\n', rcResults.max_phi_numerator(iFile,iEdgeWeight)/rcResults.max_phi_denominator(iFile,iEdgeWeight))
+				%fprintf('emp automatic: %f\n', mean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp.phi(rcResults.max_k(iFile,iEdgeWeight))))
+
+				
+				%% calculate nominator and denominator of average of random network rc coefficients
+% 				numerator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiNum(rcResults.max_k(iFile,iEdgeWeight), :));
+% 				denominator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiDenom(rcResults.max_k(iFile,iEdgeWeight), :));
+%                
+% 				sortedUniqueDenom = sort(unique(denominator), 'descend');
+% 				commonDenom = sortedUniqueDenom(1)*sortedUniqueDenom(2)
+% 				disp(commonDenom)
+% 				numeratorOfMean = sum(numerator .* (commonDenom ./ double(denominator)));
+% 				denominatorOfMean = commonDenom * numel(denominator);
+% 				
+% 				fprintf('rand by hand: %f\n', numeratorOfMean/denominatorOfMean)
+%  				fprintf('rand automatic: %f\n', mean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi(rcResults.max_k(iFile,iEdgeWeight), :)))
+% 					
+% 				numerator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiNum);
+% 				denominator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiDenom);
+% 
+% 				% Calculate common denominator for each row
+% 				SortedUniqueValuesPerRow = arrayfun(@(row) unique(denominator(row, :), 'stable'), 1:size(denominator, 1), 'UniformOutput', false);
+% 				highestDenom = cellfun(@(values) values(end), SortedUniqueValuesPerRow);
+% 				containsOneElementArray = any(cellfun(@(arr) numel(arr) == 1, SortedUniqueValuesPerRow));
+% 				if containsOneElementArray
+%                     secondHighestDenom = 1;
+%                 else
+%                     secondHighestDenom = cellfun(@(values) values(end-1), SortedUniqueValuesPerRow);
+%                 end
+% 				commonDenom = highestDenom .* secondHighestDenom;
+% 
+% 				% Calculate numerator and denominator of the mean for each row
+% 				numeratorOfMean = sum(numerator .* (commonDenom' ./ denominator), 2);
+% 				denominatorOfMean = commonDenom .* size(denominator, 2);
+% 				
+% 				meanRandCoeffByHand = numeratorOfMean./denominatorOfMean;
+%  				meanRandCoeffAuto = mean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi, 2);
+% 				size(meanRandCoeffByHand)
+% 				size(meanRandCoeffAuto)
+% 
+%                 %% verify that meanRandCoeffByHand is equal to meanRandCoeffAuto
+%                 % Define the tolerance
+%                 tolerance = eps;
+% 
+%                 % Compare values within the tolerance
+%                 isEqual = all(abs(meanRandCoeffByHand(~isnan(meanRandCoeffByHand)) - meanRandCoeffAuto(~isnan(meanRandCoeffAuto))) <= tolerance);
+% 				%isequaln(meanRandCoeffByHand, meanRandCoeffAuto)
+				
+				
+                numerator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiNum);
+				denominator = double(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phiDenom);
+
+				% Calculate common denominator for each row
+				SortedUniqueValuesPerRow = arrayfun(@(row) unique(denominator(row, :), 'stable'), 1:size(denominator, 1), 'UniformOutput', false);
+                containsOneElementArray = any(cellfun(@(arr) numel(arr) == 1, SortedUniqueValuesPerRow));
+                highestDenom = cellfun(@(values) values(end), SortedUniqueValuesPerRow);
+                if containsOneElementArray
+                    secondHighestDenom = 1;
+                else
+                    secondHighestDenom = cellfun(@(values) values(end-1), SortedUniqueValuesPerRow);
+                end
+                
+				commonDenom = highestDenom .* secondHighestDenom;
+
+				% Calculate numerator and denominator of the mean for each row
+				%fprintf('sizeNum: %d, ', size(numerator));
+                %fprintf('sizeCommonDenum: %d, ', size(commonDenom));
+				numeratorOfMean = sum(numerator .* (commonDenom' ./ denominator), 2);
+				denominatorOfMean = commonDenom .* size(denominator, 2);
+                %fprintf('sizeNumeratorOfMean: %d, ', size(numeratorOfMean));
+                %fprintf('sizeDenominatorOfMean: %d\n, ', size(denominatorOfMean));
+				
+				meanRandCoeffByHand = numeratorOfMean./denominatorOfMean';
+ 				meanRandCoeffAuto = mean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi, 2);
+
+                %% verify that meanRandCoeffByHand is equal to meanRandCoeffAuto
+                % Define the tolerance
+                tolerance = 1e-10;%eps;
+
+                % Compare values within the tolerance
+                isEqual = all(abs(meanRandCoeffByHand(~isnan(meanRandCoeffByHand)) - meanRandCoeffAuto(~isnan(meanRandCoeffAuto))) <= tolerance)
+				%isequaln(meanRandCoeffByHand, meanRandCoeffAuto)
+				
+				
               
                 rcResults.integral.norm(iFile,iEdgeWeight) = trapz( ...
                     find(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)), ...
@@ -250,8 +402,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
                     rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi( ...
                     ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi)));
                 rcResults.integral.above(iFile,iEdgeWeight) = rcResults.integral.norm( ...
-					iFile,iEdgeWeight) - length(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm( ...
-                    ~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm)));
+					iFile,iEdgeWeight) - sum(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm));
               
                 rcResults.odd(1,iFile,iEdgeWeight) = rc{iFile}.( ...
                     EDGE_WEIGHTS{iEdgeWeight}).Outliers(1);
@@ -399,7 +550,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
 					ME.stack(1).line, ME.stack(1).name, ME.message);
 			end
 		end
+		savefile = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'covariates.mat')
+		save(savefile, 'covariates');
 	end
-    savefile = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'covariates.mat')
-	save(savefile, 'covariates');
 end
