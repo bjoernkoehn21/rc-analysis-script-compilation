@@ -11,10 +11,15 @@ setenv('FREESURFER_HOME', '/opt/freesurfer');
 system(fullfile(getenv('FREESURFER_HOME'), 'SetUpFreeSurfer.sh'));
 
 % define destination of results and other relevant paths and file names
-SUBJECTS_ID_FILE = 'ukb_subjIDs.txt';
+SUBJECTS_ID_FILE =  '/slow/projects/HCP_1200/00_scripts/ukb_subjIDs.txt';
+%SUBJECTS_ID_FILE =  '/slow/projects/01_UKB/00_scripts/ukb_rc_ids.txt';
+
 PATH_TO_SUBJECT_DIRS = '/slow/projects/01_UKB/dti/00_batch1';
 RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
 	datestr(now, 'yyyymmdd'), '.mat'];
+RC_CURVE_DESTINATION = '/slow/projects/01_UKB/dti/richclub_adj_SUBJECT_ID.mat'; % SUBJECT_ID will be substituted with "num2str(subjID)"
+%RC_CURVE_DESTINATION = '/slow/projects/01_UKB/dti/00_batch1/SUBJECT_ID/DWI_processed_v311/richclub_adj_SUBJECT_ID.mat'; % SUBJECT_ID will be substituted with "num2str(subjID)" 
+
 % SUBJECTS_ID_FILE = 'hcp_subjIDs.txt';
 % PATH_TO_SUBJECT_DIRS = '/slow/projects/HCP_1200/01_complete_batch';
 % RESULTS_DESTINATION = ['/slow/projects/HCP_1200/rc_results_', ...
@@ -24,6 +29,7 @@ RESULTS_DESTINATION = ['/slow/projects/01_UKB/dti/rc_results_', ...
 PATH_TO_FREESURFER_DIR = '/slow/projects/01_UKB/surface/00_batch1';
 %PATH_TO_FREESURFER_DIR = ''; 
 flagCalculateCovariates = false;
+flagSaveCompleteRcCurve = false;
 
 % define constants
 N_PARALLEL_WORKERS = 100;
@@ -35,7 +41,7 @@ FILES = {'*_connectivity_csd_dti_aparc.mat'
 '*_connectivity_gqi_dti_aparc.mat'
 '*_connectivity_gqi_dti_lausanne120.mat'
 '*_connectivity_gqi_dti_lausanne250.mat'};
-%FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
+% FILES = {'*_connectivity_gqi_dti_lausanne250.mat'};
 RC_DOMINION_RATIO = 1.5;
 SIGNIFICANCE_LEVEL = 0.5;
 
@@ -67,17 +73,17 @@ rcResults(:) = {struct( ...
 %% Main process 
 
 % Start parallel pool
-% UKB_Cluster = parcluster('local');
-% UKB_Cluster.NumWorkers = N_PARALLEL_WORKERS;
-% saveProfile(UKB_Cluster);
-% parpool('local', N_PARALLEL_WORKERS);
+UKB_Cluster = parcluster('local');
+UKB_Cluster.NumWorkers = N_PARALLEL_WORKERS;
+saveProfile(UKB_Cluster);
+parpool('local', N_PARALLEL_WORKERS);
 
 % loop over subject IDs and execute compute_correct_assemble_rc_dti function in parallel
-%parfor iSubj = 1:length(subjIDs)
-for iSubj = 1:length(subjIDs)
+parfor iSubj = 1:length(subjIDs)
+%for iSubj = 1:length(subjIDs)
     tic
     rcResults{iSubj} = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PATH_TO_FREESURFER_DIR, str2double(subjIDs{iSubj}), N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-        FILES, rcResults{iSubj}, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO, flagCalculateCovariates);
+        FILES, rcResults{iSubj}, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO, flagCalculateCovariates, flagSaveCompleteRcCurve, RC_CURVE_DESTINATION);
     toc
 end
 delete(gcp('nocreate'));
@@ -86,7 +92,7 @@ save(savefile, 'rcResults');
 
 %% subfunction
 function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PATH_TO_FREESURFER_DIR, subjID, N_RANDOM_NETWORKS, EDGE_WEIGHTS, ...
-    FILES, rcResults, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO, flagCalculateCovariates)
+    FILES, rcResults, SIGNIFICANCE_LEVEL, RC_DOMINION_RATIO, flagCalculateCovariates, flagSaveCompleteRcCurve, RC_CURVE_DESTINATION)
     %% compute rc coefficient and p-values
     resultsDir = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'DWI_processed_v311');
     cd(resultsDir);
@@ -97,17 +103,15 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
         'meanFa', nan(1,1));
     
 
+	rc = cell(length(FILES), 1);
+	subfields = {'emp', 'svd', 'rand'};
+	subsubfields = {'phi', 'phiNum', 'phiDenom'};
+	rc(:) = {cell2struct(repmat({cell2struct(repmat({cell2struct(repmat({nan(1, 1)}, length(subsubfields), 1), ...
+		subsubfields, 1)}, length(subfields), 1), subfields, 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1)};
     
     for iFile = 1:length(FILES)
         try
 			file = load(dir(FILES{iFile}).name); % load iFile
-            
-            rc = cell(length(FILES), 1);
-            subfields = {'emp', 'svd', 'rand'};
-            subsubfields = {'phi', 'phiNum', 'phiDenom'};
-            rc(:) = {cell2struct(repmat({cell2struct(repmat({cell2struct(repmat({nan(1, 1)}, length(subsubfields), 1), ...
-        subsubfields, 1)}, length(subfields), 1), subfields, 1)}, length(EDGE_WEIGHTS), 1), EDGE_WEIGHTS, 1)};
-            
             % calculate rc coefficients for empirical network
             [rc{iFile}.fa.emp.phi, rc{iFile}.fa.emp.phiNum, rc{iFile}.fa.emp.phiDenom] = ...
                 rich_club_wu_extended(file.connectivity(:,:,3));
@@ -181,7 +185,6 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
                     min(rcIndexes):max(rcIndexes));
                 rcRangeLength = length(rcRangePvalues);
                 isOutlierInRcRange = (rcRangePvalues > SIGNIFICANCE_LEVEL);
-			  
               
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).Outliers = sum(isOutlierInRcRange);
                 rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).RangeCorrected = false;
@@ -241,7 +244,7 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
                     EDGE_WEIGHTS{iEdgeWeight}).emp.phiNum(rcResults.max_k(iFile,iEdgeWeight));
                 rcResults.emp_max_phi_denominator(iFile,iEdgeWeight) = rc{iFile}.( ...
                     EDGE_WEIGHTS{iEdgeWeight}).emp.phiDenom(rcResults.max_k(iFile,iEdgeWeight));
-				rcResults.rand_max_phi_mean_rc_coefficient = mean(rc{iFile}.(EDGE_WEIGHTS{ ...
+				rcResults.rand_max_phi_mean_rc_coefficient(iFile,iEdgeWeight) = mean(rc{iFile}.(EDGE_WEIGHTS{ ...
 					iEdgeWeight}).rand.phi(rcResults.max_k(iFile,iEdgeWeight), :));
 
                 rcResults.integral.norm(iFile,iEdgeWeight) = trapz( ...
@@ -259,17 +262,17 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
                 rcResults.integral.above(iFile,iEdgeWeight) = rcResults.integral.norm( ...
 					iFile,iEdgeWeight) - sum(~isnan(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).norm));
 					
-				rcRangeStart = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range(1);
-                rcRangeEnd = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).range(2);
+				rcRangeStart = rcResults.range(1,iFile,iEdgeWeight);
+                rcRangeEnd = rcResults.range(2,iFile,iEdgeWeight);
 				if ~isnan(rcRangeStart) % if there is a rc range
-					rcEmpInRcRange = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp.phi( ...
+					phiEmpInRcRange = rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).emp.phi( ...
 						rcRangeStart:rcRangeEnd);
-					rcRandInRcRange = mean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi( ...
+					phiRandInRcRange = nanmean(rc{iFile}.(EDGE_WEIGHTS{iEdgeWeight}).rand.phi( ...
 						rcRangeStart:rcRangeEnd, :), 2);
-					RCResults.integral.empRcRange(iFile,iEdgeWeight) = trapz(find( ...
-						~isnan(rcEmpInRcRange)), rcEmpInRcRange(~isnan(rcEmpInRcRange)));
-					RCResults.integral.randRcRange(iFile,iEdgeWeight) = trapz(find( ...
-						~isnan(rcRandInRcRange)), rcRandInRcRange(~isnan(rcRandInRcRange)));
+					rcResults.integral.empRcRange(iFile,iEdgeWeight) = trapz(find( ...
+						~isnan(phiEmpInRcRange)), phiEmpInRcRange(~isnan(phiEmpInRcRange)));
+					rcResults.integral.randRcRange(iFile,iEdgeWeight) = trapz(find( ...
+						~isnan(phiRandInRcRange)), phiRandInRcRange(~isnan(phiRandInRcRange)));
 				end
 
               
@@ -291,8 +294,10 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
 
 
     try
-        savefile = ['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '.mat']; %% This matrix should be saved in DWI_processed_v311. But currently the access rights prohibit this.
-        save(savefile,'rc')
+        if flagSaveCompleteRcCurve
+            savefile = strrep(RC_CURVE_DESTINATION, 'SUBJECT_ID', num2str(subjID)); %['/slow/projects/01_UKB/dti/richclub_adj_', num2str(subjID), '.mat']; %% This matrix should be saved in DWI_processed_v311. But currently the access rights prohibit this.
+            save(savefile,'rc')
+        end
     catch ME
         fprintf('\t Error in line %d in function %s: %s\n', ...
             ME.stack(1).line, ME.stack(1).name, ME.message);
@@ -421,5 +426,5 @@ function [rcResults] = compute_correct_assemble_rc_dti(PATH_TO_SUBJECT_DIRS, PAT
 		end
 		savefile = fullfile(PATH_TO_SUBJECT_DIRS, num2str(subjID), 'covariates.mat')
 		save(savefile, 'covariates');
-	end
+    end
 end
